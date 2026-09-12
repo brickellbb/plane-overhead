@@ -576,40 +576,61 @@
       state.timer = setInterval(() => loadPlanes({ keepIndex: true }), REFRESH_MS);
     }
 
+    function isUsablePosition(lat, lon) {
+      return (
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lon) <= 180 &&
+        // 0,0 is almost always a missing/placeholder value from embeds
+        !(lat === 0 && lon === 0)
+      );
+    }
+
     function setPosition(lat, lon, source = "manual", accuracyM = null) {
-      state.lat = lat;
-      state.lon = lon;
-      state.locationSource = source;
+      let nextLat = Number(lat);
+      let nextLon = Number(lon);
+      let nextSource = source;
+
+      if (!isUsablePosition(nextLat, nextLon)) {
+        nextLat = DEFAULT_LAT;
+        nextLon = DEFAULT_LON;
+        nextSource = "default";
+        accuracyM = null;
+      }
+
+      state.lat = nextLat;
+      state.lon = nextLon;
+      state.locationSource = nextSource;
       state.accuracyM = accuracyM;
       try {
-        localStorage.setItem("plane-overhead-lat", String(lat));
-        localStorage.setItem("plane-overhead-lon", String(lon));
+        localStorage.setItem("plane-overhead-lat", String(nextLat));
+        localStorage.setItem("plane-overhead-lon", String(nextLon));
       } catch {}
       el.setup.classList.remove("visible");
       loadPlanes();
       startTimer();
     }
 
+    function ensureDefaultPosition() {
+      if (!isUsablePosition(state.lat, state.lon)) {
+        setPosition(DEFAULT_LAT, DEFAULT_LON, "default");
+      }
+    }
+
     function showManualSetup(message) {
+      ensureDefaultPosition();
       setStatus(message, true);
       el.setup.classList.add("visible");
       el.lat.value = state.lat ?? DEFAULT_LAT;
       el.lon.value = state.lon ?? DEFAULT_LON;
-      try {
-        const lat = localStorage.getItem("plane-overhead-lat");
-        const lon = localStorage.getItem("plane-overhead-lon");
-        if (lat) el.lat.value = lat;
-        if (lon) el.lon.value = lon;
-      } catch {}
     }
 
     function requestGps() {
+      // Geolocation is often blocked in iframes by Permissions-Policy.
       if (!navigator.geolocation) {
-        if (state.lat == null) {
-          showManualSetup("Geolocation unavailable — enter coordinates near you.");
-        } else {
-          setStatus("Geolocation unavailable — still using current location.", true);
-        }
+        ensureDefaultPosition();
+        setStatus("GPS unavailable here — using default location.", true);
         return;
       }
       setStatus("Requesting GPS…");
@@ -622,16 +643,15 @@
             pos.coords.accuracy
           ),
         (err) => {
-          if (state.lat == null) {
-            showManualSetup(
-              `Location failed (${err.message || "denied"}) — enter coordinates, or allow location for this site.`
-            );
-          } else {
-            setStatus(
-              `GPS unavailable (${err.message || "denied"}) — using ${state.lat.toFixed(3)}, ${state.lon.toFixed(3)}.`,
-              true
-            );
-          }
+          ensureDefaultPosition();
+          const blocked =
+            /permissions policy|secure origins|denied/i.test(err.message || "");
+          setStatus(
+            blocked
+              ? "GPS blocked in this embed — using default location."
+              : `GPS unavailable — using default location.`,
+            true
+          );
         },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
@@ -652,21 +672,21 @@
     el.useLocation.addEventListener("click", () => {
       const lat = Number(el.lat.value);
       const lon = Number(el.lon.value);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      if (!isUsablePosition(lat, lon)) {
         setStatus("Enter valid latitude and longitude.", true);
         return;
       }
       setPosition(lat, lon, "manual");
     });
 
-    // Priority: ?lat=&lon= in URL → else built-in default.
-    // GPS is only via the satellite button (never required on load).
+    // Priority: usable ?lat=&lon= → else built-in default.
+    // Never leave the page on 0,0. GPS is only via the satellite button.
     const params = new URLSearchParams(location.search);
     const rawLat = params.get("lat");
     const rawLon = params.get("lon");
     const qLat = rawLat != null && rawLat !== "" ? Number(rawLat) : NaN;
     const qLon = rawLon != null && rawLon !== "" ? Number(rawLon) : NaN;
-    if (Number.isFinite(qLat) && Number.isFinite(qLon)) {
+    if (isUsablePosition(qLat, qLon)) {
       setPosition(qLat, qLon, "url");
     } else {
       setPosition(DEFAULT_LAT, DEFAULT_LON, "default");
