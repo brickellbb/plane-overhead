@@ -659,14 +659,17 @@
       setPosition(lat, lon, "manual");
     });
 
-    // Priority: ?lat=&lon= URL → else default (GPS/manual still available via buttons)
+    // Priority: ?lat=&lon= in URL → else built-in default.
+    // GPS is only via the satellite button (never required on load).
     const params = new URLSearchParams(location.search);
-    const qLat = Number(params.get("lat"));
-    const qLon = Number(params.get("lon"));
+    const rawLat = params.get("lat");
+    const rawLon = params.get("lon");
+    const qLat = rawLat != null && rawLat !== "" ? Number(rawLat) : NaN;
+    const qLon = rawLon != null && rawLon !== "" ? Number(rawLon) : NaN;
     if (Number.isFinite(qLat) && Number.isFinite(qLon)) {
       setPosition(qLat, qLon, "url");
     } else {
-      setPosition(DEFAULT_LAT, DEFAULT_LON, "manual");
+      setPosition(DEFAULT_LAT, DEFAULT_LON, "default");
     }
   </script>
 </body>
