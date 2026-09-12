@@ -61,14 +61,28 @@
     #status.error { color: #f88; }
     #card { display: none; }
     #card.visible { display: block; }
+    .headline {
+      text-align: center;
+      margin: 0 0 0.5em;
+    }
     .callsign {
       font-size: var(--fs-title);
-      font-weight: 700;
+      font-weight: 400;
       letter-spacing: 0.02em;
       line-height: 1.1;
-      margin: 0 0 0.5em;
-      text-align: center;
-      overflow-wrap: anywhere;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .route-line {
+      font-size: calc(var(--fs-title) - 2px);
+      font-weight: 400;
+      color: #fff;
+      line-height: 1.2;
+      margin: 0.15em 0 0;
+      min-height: 1.2em;
+      white-space: nowrap;
+      overflow: hidden;
     }
     .row {
       display: grid;
@@ -80,22 +94,6 @@
     .row .label { color: var(--muted); }
     .row .value {
       font-variant-numeric: tabular-nums;
-      overflow-wrap: anywhere;
-    }
-    .route {
-      margin-top: var(--gap);
-      padding-top: 0;
-      font-size: var(--fs-route);
-    }
-    .route .airports {
-      font-weight: 600;
-      color: var(--accent);
-      overflow-wrap: anywhere;
-    }
-    .route .cities {
-      color: var(--muted);
-      font-size: var(--fs-small);
-      margin-top: 1px;
       overflow-wrap: anywhere;
     }
     footer {
@@ -183,15 +181,14 @@
     </div>
 
     <div id="card">
-      <p class="callsign" id="callsign">—</p>
+      <div class="headline">
+        <p class="callsign" id="callsign">—</p>
+        <p class="route-line" id="route"></p>
+      </div>
       <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
       <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
       <div class="row"><span class="label">Speed</span><span class="value" id="speed">—</span></div>
       <div class="row"><span class="label">Pos</span><span class="value" id="dist">—</span></div>
-      <div class="route">
-        <div class="airports" id="route">—</div>
-        <div class="cities" id="route-detail"></div>
-      </div>
     </div>
   </main>
 
@@ -242,7 +239,6 @@
       speed: document.getElementById("speed"),
       dist: document.getElementById("dist"),
       route: document.getElementById("route"),
-      routeDetail: document.getElementById("route-detail"),
       next: document.getElementById("next"),
       refresh: document.getElementById("refresh"),
       nearest: document.getElementById("nearest"),
@@ -262,6 +258,7 @@
       index: 0,
       timer: null,
       routeCache: new Map(),
+      callsignCache: new Map(), // ICAO → telephony name from 123atc.com
     };
 
     function setStatus(msg, isError = false) {
@@ -406,7 +403,8 @@
         .sort((a, b) => a.dist - b.dist);
     }
 
-    // ICAO airline designator → common / marketing name
+    // Seed / overrides for common operators. Unknown prefixes are resolved
+    // on demand from https://123atc.com/call-signs/ (telephony call signs).
     const AIRLINES = {
       JZA: "Jazz",
       ROU: "Rouge",
@@ -512,13 +510,74 @@
       return { icao: m[1], flightNo: m[2] };
     }
 
-    function displayNameForCallsign(callsign, apiAirlineName) {
+    function titleCaseCallsign(name) {
+      if (!name) return name;
+      const cleaned = String(name).replace(/\s+/g, " ").trim();
+      if (!cleaned) return cleaned;
+      // SPEEDBIRD / AIR CANADA → Speedbird / Air Canada
+      if (cleaned === cleaned.toUpperCase()) {
+        return cleaned
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+      return cleaned;
+    }
+
+    /**
+     * Look up ATC telephony callsign from 123atc.com for a 3-letter ICAO ID.
+     * Example page: https://123atc.com/call-sign/BAW → "SPEEDBIRD"
+     */
+    async function lookup123atcCallsign(icao) {
+      const key = String(icao || "").toUpperCase();
+      if (!/^[A-Z]{3}$/.test(key)) return null;
+      if (AIRLINES[key]) return AIRLINES[key];
+      if (state.callsignCache.has(key)) return state.callsignCache.get(key);
+
+      try {
+        const cached = localStorage.getItem(`plane-cs-123atc-${key}`);
+        if (cached) {
+          state.callsignCache.set(key, cached);
+          return cached;
+        }
+      } catch {}
+
+      try {
+        const res = await fetch(`https://r.jina.ai/https://123atc.com/call-sign/${key}`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const wrap = await res.json();
+        const title = wrap?.data?.title || "";
+        // "BAW Call Sign SPEEDBIRD (British Airways)"
+        const m = title.match(/Call Sign\s+(.+?)(?:\s*\(|$)/i);
+        if (!m) {
+          state.callsignCache.set(key, null);
+          return null;
+        }
+        const name = titleCaseCallsign(m[1]);
+        state.callsignCache.set(key, name);
+        try {
+          localStorage.setItem(`plane-cs-123atc-${key}`, name);
+        } catch {}
+        return name;
+      } catch {
+        state.callsignCache.set(key, null);
+        return null;
+      }
+    }
+
+    async function displayNameForCallsign(callsign, apiAirlineName) {
       const parsed = parseAirlineCallsign(callsign);
       if (!parsed) return callsign || null;
+
+      // Prefer local seed → 123atc telephony → adsbdb airline name → raw ICAO
       const operator =
-        shortAirlineName(apiAirlineName) ||
         AIRLINES[parsed.icao] ||
+        (await lookup123atcCallsign(parsed.icao)) ||
+        shortAirlineName(apiAirlineName) ||
         parsed.icao;
+
       return `${operator} ${parsed.flightNo}`;
     }
 
@@ -647,6 +706,26 @@
       return info;
     }
 
+    function fitTextOneLine(node) {
+      if (!node) return;
+      node.style.fontSize = "";
+      let size = parseFloat(getComputedStyle(node).fontSize) || 16;
+      node.style.fontSize = `${size}px`;
+      while (size > 8 && node.scrollWidth > node.clientWidth + 1) {
+        size -= 0.5;
+        node.style.fontSize = `${size}px`;
+      }
+      return size;
+    }
+
+    function setCallsignAndRoute(callsignText, routeText) {
+      el.callsign.textContent = callsignText || "Unknown";
+      const csSize = fitTextOneLine(el.callsign);
+      el.route.style.fontSize = `${Math.max(8, (csSize || 16) - 2)}px`;
+      el.route.textContent = routeText || "";
+      if (routeText) fitTextOneLine(el.route);
+    }
+
     async function showPlane(index) {
       if (!state.planes.length) {
         el.card.classList.remove("visible");
@@ -665,8 +744,10 @@
       el.card.classList.add("visible");
       el.next.disabled = state.planes.length < 2;
 
-      el.callsign.textContent =
-        displayNameForCallsign(p.callsign, null) || p.registration || "Unknown";
+      setCallsignAndRoute(
+        (await displayNameForCallsign(p.callsign, null)) || p.registration || "Unknown",
+        ""
+      );
 
       el.type.textContent = p.typeDesc || p.typeCode || "—";
       el.alt.textContent = `${fmtNum(p.alt)} ft`;
@@ -677,30 +758,17 @@
         return dir ? `${dist} ${dir}` : dist;
       })();
 
-      el.route.textContent = "Looking up route…";
-      el.routeDetail.textContent = "";
-
       const route = await lookupRoute(p.callsign, p);
       if (state.planes[state.index] !== p) return;
 
-      if (route?.airline) {
-        el.callsign.textContent =
-          displayNameForCallsign(p.callsign, route.airline) ||
-          p.callsign ||
-          p.registration ||
-          "Unknown";
-      }
-
-      if (route?.from && route?.to) {
-        el.route.textContent = `${route.from} → ${route.to}`;
-        el.routeDetail.textContent =
-          route.fromCity && route.toCity ? `${route.fromCity} to ${route.toCity}` : "";
-      } else {
-        el.route.textContent = "Route unknown";
-        el.routeDetail.textContent = p.callsign
-          ? "No route found for this callsign"
-          : "Needs a callsign to look up route";
-      }
+      const name =
+        (await displayNameForCallsign(p.callsign, route?.airline)) ||
+        p.callsign ||
+        p.registration ||
+        "Unknown";
+      const routeText =
+        route?.from && route?.to ? `${route.from} → ${route.to}` : "";
+      setCallsignAndRoute(name, routeText);
     }
 
     async function loadPlanes({ keepIndex = false, jumpToNearest = false } = {}) {
