@@ -75,7 +75,7 @@
       overflow: hidden;
     }
     .route-line {
-      font-size: calc(var(--fs-title) - 4px);
+      font-size: calc(var(--fs-title) - 6px);
       font-weight: 400;
       color: #fff;
       line-height: 1.2;
@@ -85,7 +85,7 @@
       overflow: hidden;
     }
     .route-cities {
-      font-size: calc(var(--fs-small) - 2px);
+      font-size: var(--fs);
       font-weight: 400;
       color: var(--muted);
       line-height: 1.2;
@@ -733,9 +733,10 @@
     function setCallsignAndRoute(callsignText, routeText, citiesText) {
       el.callsign.textContent = callsignText || "Unknown";
       const csSize = fitTextOneLine(el.callsign);
-      el.route.style.fontSize = `${Math.max(8, (csSize || 16) - 4)}px`;
+      el.route.style.fontSize = `${Math.max(8, (csSize || 16) - 6)}px`;
       el.route.textContent = routeText || "";
       if (routeText) fitTextOneLine(el.route);
+      el.routeDetail.style.fontSize = "";
       el.routeDetail.textContent = citiesText || "";
       if (citiesText) fitTextOneLine(el.routeDetail);
     }
