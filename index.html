@@ -28,27 +28,6 @@
       padding: 10px;
       gap: 8px;
     }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 8px;
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 6px;
-    }
-    header h1 {
-      margin: 0;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-    #meta {
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-    }
     main {
       flex: 1;
       display: flex;
@@ -68,12 +47,7 @@
       font-weight: 700;
       letter-spacing: 0.02em;
       line-height: 1.1;
-      margin: 0 0 4px;
-    }
-    .sub {
-      color: var(--muted);
-      font-size: 13px;
-      margin-bottom: 12px;
+      margin: 0 0 12px;
     }
     .row {
       display: grid;
@@ -122,11 +96,28 @@
       opacity: 0.45;
       cursor: default;
     }
-    button.primary {
-      background: #1e3a5f;
-      border-color: #2a5080;
+    footer button.icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      color: #fff;
+      background: #1a1a1a;
+      border-color: #444;
     }
-    button.primary:hover { background: #274a75; }
+    footer button.icon-btn:hover {
+      background: #2a2a2a;
+    }
+    footer button.icon-btn svg {
+      width: 22px;
+      height: 22px;
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
     #setup {
       display: none;
       flex-direction: column;
@@ -149,11 +140,6 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1>Nearest Plane</h1>
-    <div id="meta"></div>
-  </header>
-
   <main>
     <div id="status">Locating…</div>
 
@@ -163,11 +149,11 @@
       <label for="lon">Longitude</label>
       <input id="lon" type="number" step="any" placeholder="-74.0060" />
       <button type="button" id="use-location">Use these coordinates</button>
+      <button type="button" id="use-gps">Request GPS location</button>
     </div>
 
     <div id="card">
       <p class="callsign" id="callsign">—</p>
-      <p class="sub" id="identity">—</p>
       <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
       <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
       <div class="row"><span class="label">Speed</span><span class="value" id="speed">—</span></div>
@@ -180,12 +166,33 @@
   </main>
 
   <footer>
-    <button type="button" id="refresh">Refresh</button>
-    <button type="button" class="primary" id="next" disabled>Next</button>
+    <button type="button" class="icon-btn" id="gps" aria-label="GPS" title="GPS">
+      <!-- satellite -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="9" y="9" width="6" height="6" rx="1" transform="rotate(45 12 12)" />
+        <path d="M7 7l2.5 2.5M17 17l2.5 2.5M17 7l-2.5 2.5M7 17l2.5-2.5" />
+        <path d="M12 15.5V19M10.5 19h3" />
+        <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      </svg>
+    </button>
+    <button type="button" class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">
+      <!-- refresh -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M20 12a8 8 0 1 1-2.2-5.5" />
+        <path d="M20 4v5h-5" />
+      </svg>
+    </button>
+    <button type="button" class="icon-btn" id="next" aria-label="Next" title="Next" disabled>
+      <!-- next -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 5l10 7-10 7V5z" />
+        <path d="M19 5v14" />
+      </svg>
+    </button>
   </footer>
 
   <script>
-    const RADIUS_NM = 50;
+    const RADIUS_NM = 150; // nautical miles (~173 mi). API max is typically 250.
     const REFRESH_MS = 30000;
     const MIN_ALT_FT = 200;
 
@@ -198,9 +205,7 @@
       status: document.getElementById("status"),
       setup: document.getElementById("setup"),
       card: document.getElementById("card"),
-      meta: document.getElementById("meta"),
       callsign: document.getElementById("callsign"),
-      identity: document.getElementById("identity"),
       type: document.getElementById("type"),
       alt: document.getElementById("alt"),
       speed: document.getElementById("speed"),
@@ -209,15 +214,20 @@
       routeDetail: document.getElementById("route-detail"),
       next: document.getElementById("next"),
       refresh: document.getElementById("refresh"),
+      gps: document.getElementById("gps"),
       lat: document.getElementById("lat"),
       lon: document.getElementById("lon"),
       useLocation: document.getElementById("use-location"),
+      useGps: document.getElementById("use-gps"),
     };
 
     const state = {
       lat: null,
       lon: null,
+      locationSource: null, // "gps" | "url" | "manual"
+      accuracyM: null,
       planes: [],
+      rawCount: 0,
       index: 0,
       timer: null,
       routeCache: new Map(),
@@ -256,6 +266,9 @@
       let alt = raw.alt_baro;
       if (alt === "ground") return null;
       alt = Number(alt);
+      if (!Number.isFinite(alt)) {
+        alt = Number(raw.alt_geom);
+      }
       if (!Number.isFinite(alt) || alt < MIN_ALT_FT) return null;
 
       const callsign = (raw.flight || "").trim() || null;
@@ -324,10 +337,124 @@
 
     function planesFromResponse(data, lat, lon) {
       const list = data.aircraft || data.ac || [];
+      state.rawCount = list.length;
       return list
         .map((raw) => normalizePlane(raw, lat, lon))
         .filter(Boolean)
         .sort((a, b) => a.dist - b.dist);
+    }
+
+    // ICAO airline designator → common / marketing name
+    const AIRLINES = {
+      JZA: "Jazz",
+      ROU: "Rouge",
+      ACA: "Air Canada",
+      WJA: "WestJet",
+      WEN: "WestJet Encore",
+      TSC: "Air Transat",
+      FLE: "Flair",
+      POE: "Porter",
+      PJT: "Porter",
+      CAV: "Calm Air",
+      PCO: "Pacific Coastal",
+      CJT: "Cargojet",
+      UAL: "United",
+      AAL: "American",
+      DAL: "Delta",
+      SWA: "Southwest",
+      JBU: "JetBlue",
+      ASA: "Alaska",
+      FFT: "Frontier",
+      NKS: "Spirit",
+      SCX: "Sun Country",
+      HAL: "Hawaiian",
+      MXY: "Breeze",
+      SKW: "SkyWest",
+      RPA: "Republic",
+      ENY: "Envoy",
+      PDT: "Piedmont",
+      JIA: "PSA",
+      ASH: "Mesa",
+      GJS: "GoJet",
+      EDV: "Endeavor",
+      QXE: "Horizon",
+      BAW: "British Airways",
+      VIR: "Virgin Atlantic",
+      AFR: "Air France",
+      KLM: "KLM",
+      DLH: "Lufthansa",
+      EIN: "Aer Lingus",
+      ICE: "Icelandair",
+      SAS: "SAS",
+      IBE: "Iberia",
+      RYR: "Ryanair",
+      EZY: "easyJet",
+      EWG: "Eurowings",
+      AUA: "Austrian",
+      SWR: "Swiss",
+      TAP: "TAP",
+      FIN: "Finnair",
+      LOT: "LOT",
+      THY: "Turkish",
+      UAE: "Emirates",
+      QTR: "Qatar",
+      ETD: "Etihad",
+      SIA: "Singapore",
+      CPA: "Cathay Pacific",
+      ANA: "ANA",
+      JAL: "JAL",
+      QFA: "Qantas",
+      ANZ: "Air New Zealand",
+      AMX: "Aeromexico",
+      CMP: "Copa",
+      AVA: "Avianca",
+      FDX: "FedEx",
+      UPS: "UPS",
+      GTI: "Atlas Air",
+      EJA: "NetJets",
+      LXJ: "Flexjet",
+    };
+
+    function shortAirlineName(name) {
+      if (!name) return null;
+      const n = String(name).trim();
+      const aliases = [
+        [/air canada rouge/i, "Rouge"],
+        [/jazz aviation/i, "Jazz"],
+        [/air canada express/i, "Jazz"],
+        [/united airlines/i, "United"],
+        [/american airlines/i, "American"],
+        [/delta air lines/i, "Delta"],
+        [/southwest airlines/i, "Southwest"],
+        [/jetblue airways/i, "JetBlue"],
+        [/westjet(?: airlines)?/i, "WestJet"],
+        [/alaska airlines/i, "Alaska"],
+      ];
+      for (const [re, label] of aliases) {
+        if (re.test(n)) return label;
+      }
+      return n
+        .replace(/\s+(Airlines|Airline|Airways|Aviation|Ltd\.?|Limited|Inc\.?|LP|Corp\.?)\s*$/i, "")
+        .trim();
+    }
+
+    function parseAirlineCallsign(callsign) {
+      if (!callsign) return null;
+      const cs = callsign.toUpperCase().replace(/\s+/g, "");
+      // e.g. UAL1227, ACA601, JZA8591
+      const m = cs.match(/^([A-Z]{3})(\d{1,4}[A-Z]?)$/);
+      if (!m) return null;
+      return { icao: m[1], flightNo: m[2] };
+    }
+
+    function displayNameForCallsign(callsign, apiAirlineName) {
+      const parsed = parseAirlineCallsign(callsign);
+      if (!parsed) return callsign || null;
+      const operator =
+        shortAirlineName(apiAirlineName) ||
+        AIRLINES[parsed.icao] ||
+        parsed.icao;
+      return `${operator} ${parsed.flightNo}`;
     }
 
     async function lookupRoute(callsign) {
@@ -345,8 +472,8 @@
           return null;
         }
         const info = {
-          from: route.origin.iata_code || route.origin.icao_code,
-          to: route.destination.iata_code || route.destination.icao_code,
+          from: route.origin.icao_code || route.origin.iata_code,
+          to: route.destination.icao_code || route.destination.iata_code,
           fromCity: route.origin.municipality || route.origin.name,
           toCity: route.destination.municipality || route.destination.name,
           airline: route.airline?.name || null,
@@ -363,8 +490,10 @@
       if (!state.planes.length) {
         el.card.classList.remove("visible");
         el.next.disabled = true;
-        setStatus("No aircraft nearby.");
-        el.meta.textContent = "";
+        setStatus(
+          `No aircraft nearby (${state.rawCount} raw in ${RADIUS_NM} nm at ${state.lat?.toFixed(4)}, ${state.lon?.toFixed(4)}).`,
+          true
+        );
         return;
       }
 
@@ -375,31 +504,32 @@
       el.card.classList.add("visible");
       el.next.disabled = state.planes.length < 2;
 
-      el.callsign.textContent = p.callsign || p.registration || "Unknown";
-      const bits = [];
-      if (p.registration && p.registration !== p.callsign) bits.push(p.registration);
-      if (p.typeCode) bits.push(p.typeCode);
-      el.identity.textContent = bits.join(" · ") || "—";
+      el.callsign.textContent =
+        displayNameForCallsign(p.callsign, null) || p.registration || "Unknown";
 
       el.type.textContent = p.typeDesc || p.typeCode || "—";
       el.alt.textContent = `${fmtNum(p.alt)} ft`;
       el.speed.textContent = p.gs != null ? `${fmtNum(p.gs, 0)} kt` : "—";
       el.dist.textContent = `${fmtNum(p.dist, 1)} nm`;
-      el.meta.textContent = `${state.index + 1} / ${state.planes.length}`;
 
       el.route.textContent = "Looking up route…";
       el.routeDetail.textContent = "";
 
       const route = await lookupRoute(p.callsign);
-      // Ignore stale replies if user already moved on
       if (state.planes[state.index] !== p) return;
 
-      if (route) {
+      if (route?.airline) {
+        el.callsign.textContent =
+          displayNameForCallsign(p.callsign, route.airline) ||
+          p.callsign ||
+          p.registration ||
+          "Unknown";
+      }
+
+      if (route?.from && route?.to) {
         el.route.textContent = `${route.from} → ${route.to}`;
-        const detail = [route.fromCity && route.toCity ? `${route.fromCity} to ${route.toCity}` : null, route.airline]
-          .filter(Boolean)
-          .join(" · ");
-        el.routeDetail.textContent = detail;
+        el.routeDetail.textContent =
+          route.fromCity && route.toCity ? `${route.fromCity} to ${route.toCity}` : "";
       } else {
         el.route.textContent = "Route unknown";
         el.routeDetail.textContent = p.callsign
@@ -441,9 +571,11 @@
       state.timer = setInterval(() => loadPlanes({ keepIndex: true }), REFRESH_MS);
     }
 
-    function setPosition(lat, lon) {
+    function setPosition(lat, lon, source = "manual", accuracyM = null) {
       state.lat = lat;
       state.lon = lon;
+      state.locationSource = source;
+      state.accuracyM = accuracyM;
       try {
         localStorage.setItem("plane-overhead-lat", String(lat));
         localStorage.setItem("plane-overhead-lon", String(lon));
@@ -464,6 +596,28 @@
       } catch {}
     }
 
+    function requestGps() {
+      if (!navigator.geolocation) {
+        showManualSetup("Geolocation unavailable — enter coordinates near you.");
+        return;
+      }
+      setStatus("Requesting GPS…");
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          setPosition(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            "gps",
+            pos.coords.accuracy
+          ),
+        (err) =>
+          showManualSetup(
+            `Location failed (${err.message || "denied"}) — enter coordinates, or allow location for this site.`
+          ),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
     el.next.addEventListener("click", () => {
       showPlane(state.index + 1);
     });
@@ -473,6 +627,9 @@
       startTimer();
     });
 
+    el.gps.addEventListener("click", () => requestGps());
+    el.useGps.addEventListener("click", () => requestGps());
+
     el.useLocation.addEventListener("click", () => {
       const lat = Number(el.lat.value);
       const lon = Number(el.lon.value);
@@ -480,23 +637,17 @@
         setStatus("Enter valid latitude and longitude.", true);
         return;
       }
-      setPosition(lat, lon);
+      setPosition(lat, lon, "manual");
     });
 
-    // Optional override: ?lat=40.7&lon=-74.0
+    // Optional override: ?lat=40.7&lon=-74.0  (this skips GPS)
     const params = new URLSearchParams(location.search);
     const qLat = Number(params.get("lat"));
     const qLon = Number(params.get("lon"));
     if (Number.isFinite(qLat) && Number.isFinite(qLon)) {
-      setPosition(qLat, qLon);
-    } else if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setPosition(pos.coords.latitude, pos.coords.longitude),
-        () => showManualSetup("Location blocked — enter coordinates near you."),
-        { enableHighAccuracy: false, timeout: 10000 }
-      );
+      setPosition(qLat, qLon, "url");
     } else {
-      showManualSetup("Geolocation unavailable — enter coordinates near you.");
+      requestGps();
     }
   </script>
 </body>
