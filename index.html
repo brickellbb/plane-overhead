@@ -13,72 +13,92 @@
       --btn: #2a2a2a;
       --btn-hover: #3a3a3a;
       --accent: #7eb8ff;
+      /* Scales down aggressively in small embeds */
+      --fs: clamp(8px, 2.8vh, 14px);
+      --fs-title: clamp(11px, 5vh, 28px);
+      --fs-route: clamp(9px, 3.2vh, 15px);
+      --fs-small: clamp(7px, 2.2vh, 12px);
+      --pad: clamp(2px, 1vh, 10px);
+      --gap: clamp(2px, 0.8vh, 8px);
+      --row-label: clamp(36px, 18vw, 64px);
+      --btn-size: clamp(10px, 3.2vh, 14px);
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       height: 100%;
+      max-height: 100%;
+      overflow: hidden;
       background: var(--bg);
       color: var(--fg);
-      font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: var(--fs)/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     body {
       display: flex;
       flex-direction: column;
-      padding: 10px;
-      gap: 8px;
+      padding: var(--pad);
+      gap: var(--gap);
+      min-height: 0;
     }
     main {
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      min-height: 0;
+      justify-content: flex-start;
+      -webkit-overflow-scrolling: touch;
     }
     #status {
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--fs-small);
     }
     #status.error { color: #f88; }
     #card { display: none; }
     #card.visible { display: block; }
     .callsign {
-      font-size: 28px;
+      font-size: var(--fs-title);
       font-weight: 700;
       letter-spacing: 0.02em;
       line-height: 1.1;
-      margin: 0 0 12px;
+      margin: 0 0 var(--gap);
+      overflow-wrap: anywhere;
     }
     .row {
       display: grid;
-      grid-template-columns: 64px 1fr;
-      gap: 4px 8px;
-      margin: 4px 0;
-      font-size: 14px;
+      grid-template-columns: var(--row-label) 1fr;
+      gap: 1px var(--gap);
+      margin: 1px 0;
+      font-size: var(--fs);
     }
     .row .label { color: var(--muted); }
-    .row .value { font-variant-numeric: tabular-nums; }
+    .row .value {
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
     .route {
-      margin-top: 10px;
-      padding-top: 10px;
+      margin-top: var(--gap);
+      padding-top: var(--gap);
       border-top: 1px solid var(--line);
-      font-size: 15px;
+      font-size: var(--fs-route);
     }
     .route .airports {
       font-weight: 600;
       color: var(--accent);
+      overflow-wrap: anywhere;
     }
     .route .cities {
       color: var(--muted);
-      font-size: 12px;
-      margin-top: 2px;
+      font-size: var(--fs-small);
+      margin-top: 1px;
+      overflow-wrap: anywhere;
     }
     footer {
       display: flex;
-      gap: 4px;
+      gap: 3px;
       border-top: 1px solid var(--line);
-      padding-top: 4px;
-      flex-shrink: 0;
+      padding-top: 3px;
+      flex: 0 0 auto;
     }
     button {
       appearance: none;
@@ -87,8 +107,8 @@
       color: var(--fg);
       font: inherit;
       font-weight: 600;
-      padding: 6px 8px;
-      border-radius: 4px;
+      padding: 4px 6px;
+      border-radius: 3px;
       cursor: pointer;
     }
     button:hover { background: var(--btn-hover); }
@@ -101,8 +121,10 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 0;
-      padding: 3px 4px;
+      height: calc(var(--btn-size) + 6px);
+      min-height: 16px;
+      max-height: 22px;
+      padding: 2px;
       color: #fff;
       background: #1a1a1a;
       border-color: #444;
@@ -112,8 +134,8 @@
       background: #2a2a2a;
     }
     footer button.icon-btn svg {
-      width: 12px;
-      height: 12px;
+      width: var(--btn-size);
+      height: var(--btn-size);
       display: block;
       fill: none;
       stroke: currentColor;
@@ -124,11 +146,11 @@
     #setup {
       display: none;
       flex-direction: column;
-      gap: 8px;
+      gap: var(--gap);
     }
     #setup.visible { display: flex; }
     #setup label {
-      font-size: 12px;
+      font-size: var(--fs-small);
       color: var(--muted);
     }
     #setup input {
@@ -136,8 +158,8 @@
       background: #1a1a1a;
       border: 1px solid var(--line);
       color: var(--fg);
-      padding: 8px;
-      border-radius: 4px;
+      padding: 4px;
+      border-radius: 3px;
       font: inherit;
     }
   </style>
