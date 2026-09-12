@@ -6,19 +6,19 @@
   <title>Nearest Plane</title>
   <style>
     :root {
-      --bg: #111;
       --fg: #eee;
       --muted: #999;
       --line: #333;
       --btn: #2a2a2a;
       --btn-hover: #3a3a3a;
       --accent: #7eb8ff;
+      --bg: rgba(17, 17, 17, 0.8); /* ~20% transparent */
       /* Scales down aggressively in small embeds */
-      --fs: clamp(6px, 2vh, 11px);
-      --fs-title: clamp(12px, 3.4vh, 18px);
-      --fs-route: clamp(7px, 2.4vh, 12px);
-      --fs-small: clamp(5px, 1.6vh, 9px);
-      --pad: clamp(2px, 0.8vh, 8px);
+      --fs: clamp(8px, 2vh, 11px);
+      --fs-title: clamp(16px, 3.4vh, 22px);
+      --fs-route: clamp(8px, 2.4vh, 12px);
+      --fs-small: clamp(8px, 1.6vh, 9px);
+      --pad: clamp(4px, 1.2vh, 10px);
       --gap: clamp(1px, 0.5vh, 6px);
       --row-label: clamp(28px, 14vw, 48px);
       --btn-size: clamp(8px, 2.6vh, 12px);
@@ -29,16 +29,21 @@
       height: 100%;
       max-height: 100%;
       overflow: hidden;
-      background: var(--bg);
+      background: transparent;
       color: var(--fg);
       font: var(--fs)/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     body {
       display: flex;
       flex-direction: column;
+      margin: 4px;
       padding: var(--pad);
       gap: var(--gap);
       min-height: 0;
+      height: calc(100% - 8px);
+      max-height: calc(100% - 8px);
+      background: var(--bg);
+      border-radius: 4px;
     }
     main {
       flex: 1 1 auto;
