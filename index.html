@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Nearest Plane</title>
+  <style>
+    :root {
+      --bg: #111;
+      --fg: #eee;
+      --muted: #999;
+      --line: #333;
+      --btn: #2a2a2a;
+      --btn-hover: #3a3a3a;
+      --accent: #7eb8ff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font: 14px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      gap: 8px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 6px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    #meta {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+    }
+    #status {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    #status.error { color: #f88; }
+    #card { display: none; }
+    #card.visible { display: block; }
+    .callsign {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+      margin: 0 0 4px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 4px 8px;
+      margin: 4px 0;
+      font-size: 14px;
+    }
+    .row .label { color: var(--muted); }
+    .row .value { font-variant-numeric: tabular-nums; }
+    .route {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      font-size: 15px;
+    }
+    .route .airports {
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .route .cities {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    footer {
+      display: flex;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+    button {
+      flex: 1;
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--btn);
+      color: var(--fg);
+      font: inherit;
+      font-weight: 600;
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--btn-hover); }
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    button.primary {
+      background: #1e3a5f;
+      border-color: #2a5080;
+    }
+    button.primary:hover { background: #274a75; }
+    #setup {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #setup.visible { display: flex; }
+    #setup label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #setup input {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid var(--line);
+      color: var(--fg);
+      padding: 8px;
+      border-radius: 4px;
+      font: inherit;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nearest Plane</h1>
+    <div id="meta"></div>
+  </header>
+
+  <main>
+    <div id="status">Locating…</div>
+
+    <div id="setup">
+      <label for="lat">Latitude</label>
+      <input id="lat" type="number" step="any" placeholder="40.7128" />
+      <label for="lon">Longitude</label>
+      <input id="lon" type="number" step="any" placeholder="-74.0060" />
+      <button type="button" id="use-location">Use these coordinates</button>
+    </div>
+
+    <div id="card">
+      <p class="callsign" id="callsign">—</p>
+      <p class="sub" id="identity">—</p>
+      <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
+      <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
+      <div class="row"><span class="label">Speed</span><span class="value" id="speed">—</span></div>
+      <div class="row"><span class="label">Dist</span><span class="value" id="dist">—</span></div>
+      <div class="route">
+        <div class="airports" id="route">—</div>
+        <div class="cities" id="route-detail"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <button type="button" id="refresh">Refresh</button>
+    <button type="button" class="primary" id="next" disabled>Next</button>
+  </footer>
+
+  <script>
+    const RADIUS_NM = 50;
+    const REFRESH_MS = 30000;
+    const MIN_ALT_FT = 200;
+
+    const ADSB_URLS = [
+      (lat, lon) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${RADIUS_NM}`,
+      (lat, lon) => `https://api.adsb.lol/v2/point/${lat}/${lon}/${RADIUS_NM}`,
+    ];
+
+    const el = {
+      status: document.getElementById("status"),
+      setup: document.getElementById("setup"),
+      card: document.getElementById("card"),
+      meta: document.getElementById("meta"),
+      callsign: document.getElementById("callsign"),
+      identity: document.getElementById("identity"),
+      type: document.getElementById("type"),
+      alt: document.getElementById("alt"),
+      speed: document.getElementById("speed"),
+      dist: document.getElementById("dist"),
+      route: document.getElementById("route"),
+      routeDetail: document.getElementById("route-detail"),
+      next: document.getElementById("next"),
+      refresh: document.getElementById("refresh"),
+      lat: document.getElementById("lat"),
+      lon: document.getElementById("lon"),
+      useLocation: document.getElementById("use-location"),
+    };
+
+    const state = {
+      lat: null,
+      lon: null,
+      planes: [],
+      index: 0,
+      timer: null,
+      routeCache: new Map(),
+    };
+
+    function setStatus(msg, isError = false) {
+      el.status.textContent = msg;
+      el.status.classList.toggle("error", isError);
+      el.status.style.display = msg ? "block" : "none";
+    }
+
+    function fmtNum(n, digits = 0) {
+      if (n == null || Number.isNaN(n)) return "—";
+      return Number(n).toLocaleString(undefined, {
+        maximumFractionDigits: digits,
+        minimumFractionDigits: digits,
+      });
+    }
+
+    function haversineNm(lat1, lon1, lat2, lon2) {
+      const toRad = (d) => (d * Math.PI) / 180;
+      const R = 3440.065; // Earth radius in nautical miles
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    function normalizePlane(raw, originLat, originLon) {
+      const lat = raw.lat;
+      const lon = raw.lon;
+      if (lat == null || lon == null) return null;
+
+      let alt = raw.alt_baro;
+      if (alt === "ground") return null;
+      alt = Number(alt);
+      if (!Number.isFinite(alt) || alt < MIN_ALT_FT) return null;
+
+      const callsign = (raw.flight || "").trim() || null;
+      const registration = (raw.r || "").trim() || null;
+      if (!callsign && !registration) return null;
+
+      const gs = raw.gs != null ? Number(raw.gs) : null;
+      let dist = raw.dst != null ? Number(raw.dst) : null;
+      if (!Number.isFinite(dist)) {
+        dist = haversineNm(originLat, originLon, lat, lon);
+      }
+
+      const typeCode = (raw.t || "").trim() || null;
+      const typeDesc = (raw.desc || "").trim() || null;
+
+      return {
+        hex: (raw.hex || "").toLowerCase(),
+        callsign,
+        registration,
+        typeCode,
+        typeDesc,
+        alt,
+        gs: Number.isFinite(gs) ? gs : null,
+        dist,
+        lat,
+        lon,
+      };
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    /** ADS-B APIs often omit CORS; jina.ai returns the body with CORS enabled. */
+    async function fetchViaJina(url) {
+      const res = await fetch(`https://r.jina.ai/${url}`, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+      const wrap = await res.json();
+      const content = wrap?.data?.content;
+      if (!content) throw new Error("Empty proxy response");
+      return JSON.parse(content);
+    }
+
+    async function fetchAircraftData(lat, lon) {
+      let lastError = null;
+      for (const makeUrl of ADSB_URLS) {
+        const url = makeUrl(lat, lon);
+        try {
+          return await fetchJson(url);
+        } catch (err) {
+          lastError = err;
+        }
+        try {
+          return await fetchViaJina(url);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError || new Error("No aircraft data");
+    }
+
+    function planesFromResponse(data, lat, lon) {
+      const list = data.aircraft || data.ac || [];
+      return list
+        .map((raw) => normalizePlane(raw, lat, lon))
+        .filter(Boolean)
+        .sort((a, b) => a.dist - b.dist);
+    }
+
+    async function lookupRoute(callsign) {
+      if (!callsign) return null;
+      const key = callsign.toUpperCase();
+      if (state.routeCache.has(key)) return state.routeCache.get(key);
+
+      try {
+        const data = await fetchJson(
+          `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(key)}`
+        );
+        const route = data?.response?.flightroute;
+        if (!route?.origin || !route?.destination) {
+          state.routeCache.set(key, null);
+          return null;
+        }
+        const info = {
+          from: route.origin.iata_code || route.origin.icao_code,
+          to: route.destination.iata_code || route.destination.icao_code,
+          fromCity: route.origin.municipality || route.origin.name,
+          toCity: route.destination.municipality || route.destination.name,
+          airline: route.airline?.name || null,
+        };
+        state.routeCache.set(key, info);
+        return info;
+      } catch {
+        state.routeCache.set(key, null);
+        return null;
+      }
+    }
+
+    async function showPlane(index) {
+      if (!state.planes.length) {
+        el.card.classList.remove("visible");
+        el.next.disabled = true;
+        setStatus("No aircraft nearby.");
+        el.meta.textContent = "";
+        return;
+      }
+
+      state.index = ((index % state.planes.length) + state.planes.length) % state.planes.length;
+      const p = state.planes[state.index];
+
+      setStatus("");
+      el.card.classList.add("visible");
+      el.next.disabled = state.planes.length < 2;
+
+      el.callsign.textContent = p.callsign || p.registration || "Unknown";
+      const bits = [];
+      if (p.registration && p.registration !== p.callsign) bits.push(p.registration);
+      if (p.typeCode) bits.push(p.typeCode);
+      el.identity.textContent = bits.join(" · ") || "—";
+
+      el.type.textContent = p.typeDesc || p.typeCode || "—";
+      el.alt.textContent = `${fmtNum(p.alt)} ft`;
+      el.speed.textContent = p.gs != null ? `${fmtNum(p.gs, 0)} kt` : "—";
+      el.dist.textContent = `${fmtNum(p.dist, 1)} nm`;
+      el.meta.textContent = `${state.index + 1} / ${state.planes.length}`;
+
+      el.route.textContent = "Looking up route…";
+      el.routeDetail.textContent = "";
+
+      const route = await lookupRoute(p.callsign);
+      // Ignore stale replies if user already moved on
+      if (state.planes[state.index] !== p) return;
+
+      if (route) {
+        el.route.textContent = `${route.from} → ${route.to}`;
+        const detail = [route.fromCity && route.toCity ? `${route.fromCity} to ${route.toCity}` : null, route.airline]
+          .filter(Boolean)
+          .join(" · ");
+        el.routeDetail.textContent = detail;
+      } else {
+        el.route.textContent = "Route unknown";
+        el.routeDetail.textContent = p.callsign
+          ? "No scheduled route found for this callsign"
+          : "Needs a callsign to look up route";
+      }
+    }
+
+    async function loadPlanes({ keepIndex = false } = {}) {
+      if (state.lat == null || state.lon == null) return;
+
+      const prevHex = keepIndex && state.planes[state.index]?.hex;
+      el.refresh.disabled = true;
+      setStatus(state.planes.length ? "Updating…" : "Fetching nearby aircraft…");
+
+      try {
+        const data = await fetchAircraftData(state.lat, state.lon);
+        state.planes = planesFromResponse(data, state.lat, state.lon);
+
+        let nextIndex = 0;
+        if (keepIndex && prevHex) {
+          const found = state.planes.findIndex((p) => p.hex === prevHex);
+          nextIndex = found >= 0 ? found : Math.min(state.index, Math.max(0, state.planes.length - 1));
+        }
+
+        await showPlane(nextIndex);
+      } catch (err) {
+        console.error(err);
+        el.card.classList.remove("visible");
+        el.next.disabled = true;
+        setStatus("Could not load aircraft data. Try Refresh in a moment.", true);
+      } finally {
+        el.refresh.disabled = false;
+      }
+    }
+
+    function startTimer() {
+      clearInterval(state.timer);
+      state.timer = setInterval(() => loadPlanes({ keepIndex: true }), REFRESH_MS);
+    }
+
+    function setPosition(lat, lon) {
+      state.lat = lat;
+      state.lon = lon;
+      try {
+        localStorage.setItem("plane-overhead-lat", String(lat));
+        localStorage.setItem("plane-overhead-lon", String(lon));
+      } catch {}
+      el.setup.classList.remove("visible");
+      loadPlanes();
+      startTimer();
+    }
+
+    function showManualSetup(message) {
+      setStatus(message, true);
+      el.setup.classList.add("visible");
+      try {
+        const lat = localStorage.getItem("plane-overhead-lat");
+        const lon = localStorage.getItem("plane-overhead-lon");
+        if (lat) el.lat.value = lat;
+        if (lon) el.lon.value = lon;
+      } catch {}
+    }
+
+    el.next.addEventListener("click", () => {
+      showPlane(state.index + 1);
+    });
+
+    el.refresh.addEventListener("click", () => {
+      loadPlanes({ keepIndex: true });
+      startTimer();
+    });
+
+    el.useLocation.addEventListener("click", () => {
+      const lat = Number(el.lat.value);
+      const lon = Number(el.lon.value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        setStatus("Enter valid latitude and longitude.", true);
+        return;
+      }
+      setPosition(lat, lon);
+    });
+
+    // Optional override: ?lat=40.7&lon=-74.0
+    const params = new URLSearchParams(location.search);
+    const qLat = Number(params.get("lat"));
+    const qLon = Number(params.get("lon"));
+    if (Number.isFinite(qLat) && Number.isFinite(qLon)) {
+      setPosition(qLat, qLon);
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setPosition(pos.coords.latitude, pos.coords.longitude),
+        () => showManualSetup("Location blocked — enter coordinates near you."),
+        { enableHighAccuracy: false, timeout: 10000 }
+      );
+    } else {
+      showManualSetup("Geolocation unavailable — enter coordinates near you.");
+    }
+  </script>
+</body>
+</html>
