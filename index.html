@@ -75,20 +75,20 @@
     }
     footer {
       display: flex;
-      gap: 8px;
+      gap: 4px;
       border-top: 1px solid var(--line);
-      padding-top: 8px;
+      padding-top: 4px;
+      flex-shrink: 0;
     }
     button {
-      flex: 1;
       appearance: none;
       border: 1px solid var(--line);
       background: var(--btn);
       color: var(--fg);
       font: inherit;
       font-weight: 600;
-      padding: 10px 12px;
-      border-radius: 6px;
+      padding: 6px 8px;
+      border-radius: 4px;
       cursor: pointer;
     }
     button:hover { background: var(--btn-hover); }
@@ -97,24 +97,27 @@
       cursor: default;
     }
     footer button.icon-btn {
+      flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 12px;
+      min-height: 0;
+      padding: 3px 4px;
       color: #fff;
       background: #1a1a1a;
       border-color: #444;
+      line-height: 0;
     }
     footer button.icon-btn:hover {
       background: #2a2a2a;
     }
     footer button.icon-btn svg {
-      width: 22px;
-      height: 22px;
+      width: 12px;
+      height: 12px;
       display: block;
       fill: none;
       stroke: currentColor;
-      stroke-width: 1.75;
+      stroke-width: 2;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
@@ -145,9 +148,9 @@
 
     <div id="setup">
       <label for="lat">Latitude</label>
-      <input id="lat" type="number" step="any" placeholder="40.7128" />
+      <input id="lat" type="number" step="any" placeholder="43.319" />
       <label for="lon">Longitude</label>
-      <input id="lon" type="number" step="any" placeholder="-74.0060" />
+      <input id="lon" type="number" step="any" placeholder="-79.832" />
       <button type="button" id="use-location">Use these coordinates</button>
       <button type="button" id="use-gps">Request GPS location</button>
     </div>
@@ -195,6 +198,8 @@
     const RADIUS_NM = 150; // nautical miles (~173 mi). API max is typically 250.
     const REFRESH_MS = 30000;
     const MIN_ALT_FT = 200;
+    const DEFAULT_LAT = 43.319;
+    const DEFAULT_LON = -79.832;
 
     const ADSB_URLS = [
       (lat, lon) => `https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${RADIUS_NM}`,
@@ -588,6 +593,8 @@
     function showManualSetup(message) {
       setStatus(message, true);
       el.setup.classList.add("visible");
+      el.lat.value = state.lat ?? DEFAULT_LAT;
+      el.lon.value = state.lon ?? DEFAULT_LON;
       try {
         const lat = localStorage.getItem("plane-overhead-lat");
         const lon = localStorage.getItem("plane-overhead-lon");
@@ -598,7 +605,11 @@
 
     function requestGps() {
       if (!navigator.geolocation) {
-        showManualSetup("Geolocation unavailable — enter coordinates near you.");
+        if (state.lat == null) {
+          showManualSetup("Geolocation unavailable — enter coordinates near you.");
+        } else {
+          setStatus("Geolocation unavailable — still using current location.", true);
+        }
         return;
       }
       setStatus("Requesting GPS…");
@@ -610,10 +621,18 @@
             "gps",
             pos.coords.accuracy
           ),
-        (err) =>
-          showManualSetup(
-            `Location failed (${err.message || "denied"}) — enter coordinates, or allow location for this site.`
-          ),
+        (err) => {
+          if (state.lat == null) {
+            showManualSetup(
+              `Location failed (${err.message || "denied"}) — enter coordinates, or allow location for this site.`
+            );
+          } else {
+            setStatus(
+              `GPS unavailable (${err.message || "denied"}) — using ${state.lat.toFixed(3)}, ${state.lon.toFixed(3)}.`,
+              true
+            );
+          }
+        },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     }
@@ -640,14 +659,14 @@
       setPosition(lat, lon, "manual");
     });
 
-    // Optional override: ?lat=40.7&lon=-74.0  (this skips GPS)
+    // Priority: ?lat=&lon= URL → else default (GPS/manual still available via buttons)
     const params = new URLSearchParams(location.search);
     const qLat = Number(params.get("lat"));
     const qLon = Number(params.get("lon"));
     if (Number.isFinite(qLat) && Number.isFinite(qLon)) {
       setPosition(qLat, qLon, "url");
     } else {
-      requestGps();
+      setPosition(DEFAULT_LAT, DEFAULT_LON, "manual");
     }
   </script>
 </body>
