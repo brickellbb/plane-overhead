@@ -522,33 +522,129 @@
       return `${operator} ${parsed.flightNo}`;
     }
 
-    async function lookupRoute(callsign) {
+    async function lookupHexdbRoute(callsign) {
+      const data = await fetchJson(
+        `https://hexdb.io/api/v1/route/icao/${encodeURIComponent(callsign)}`
+      );
+      const route = (data?.route || "").toUpperCase();
+      const m = route.match(/^([A-Z0-9]{3,4})-([A-Z0-9]{3,4})$/);
+      if (!m) return null;
+      return {
+        from: m[1],
+        to: m[2],
+        fromCity: null,
+        toCity: null,
+        airline: null,
+        source: "hexdb",
+      };
+    }
+
+    async function lookupAdsbdbRoute(callsign) {
+      const data = await fetchJson(
+        `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(callsign)}`
+      );
+      const route = data?.response?.flightroute;
+      if (!route) return null;
+
+      const from = route.origin?.icao_code || route.origin?.iata_code || null;
+      const to =
+        route.destination?.icao_code || route.destination?.iata_code || null;
+
+      return {
+        from,
+        to,
+        fromCity: route.origin?.municipality || route.origin?.name || null,
+        toCity:
+          route.destination?.municipality || route.destination?.name || null,
+        airline: route.airline?.name || null,
+        // Keep airport coords when present so we can score plausibility
+        fromLat: route.origin?.latitude ?? null,
+        fromLon: route.origin?.longitude ?? null,
+        toLat: route.destination?.latitude ?? null,
+        toLon: route.destination?.longitude ?? null,
+        source: "adsbdb",
+      };
+    }
+
+    function routeScore(route, plane) {
+      // Prefer routes where the aircraft lies between origin and destination.
+      if (
+        !plane ||
+        !Number.isFinite(plane.lat) ||
+        !Number.isFinite(route?.fromLat) ||
+        !Number.isFinite(route?.toLat)
+      ) {
+        return 0;
+      }
+      const dOd = haversineNm(route.fromLat, route.fromLon, route.toLat, route.toLon);
+      const dOa = haversineNm(route.fromLat, route.fromLon, plane.lat, plane.lon);
+      const dAd = haversineNm(plane.lat, plane.lon, route.toLat, route.toLon);
+      if (!Number.isFinite(dOd) || dOd < 1) return 0;
+      // Perfect on-path => ~0; far off-path => large
+      const detour = dOa + dAd - dOd;
+      return -detour;
+    }
+
+    async function lookupRoute(callsign, plane) {
       if (!callsign) return null;
-      const key = callsign.toUpperCase();
+      const key = callsign.toUpperCase().replace(/\s+/g, "");
       if (state.routeCache.has(key)) return state.routeCache.get(key);
 
-      try {
-        const data = await fetchJson(
-          `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(key)}`
-        );
-        const route = data?.response?.flightroute;
-        if (!route?.origin || !route?.destination) {
-          state.routeCache.set(key, null);
-          return null;
+      const settled = await Promise.allSettled([
+        lookupHexdbRoute(key),
+        lookupAdsbdbRoute(key),
+      ]);
+      const hexdb = settled[0].status === "fulfilled" ? settled[0].value : null;
+      const adsbdb = settled[1].status === "fulfilled" ? settled[1].value : null;
+
+      let info = null;
+
+      if (hexdb?.from && hexdb?.to && adsbdb?.from && adsbdb?.to) {
+        if (hexdb.from === adsbdb.from && hexdb.to === adsbdb.to) {
+          // Agreement: use ICAO codes + city/airline enrichment
+          info = {
+            from: hexdb.from,
+            to: hexdb.to,
+            fromCity: adsbdb.fromCity,
+            toCity: adsbdb.toCity,
+            airline: adsbdb.airline,
+            source: "hexdb+adsbdb",
+          };
+        } else {
+          // Disagreement: keep adsbdb only if the aircraft looks roughly
+          // on that path; otherwise prefer hexdb (common tar1090 source).
+          const score = routeScore(adsbdb, plane);
+          if (score > -40) {
+            info = { ...adsbdb, source: "adsbdb" };
+          } else {
+            info = {
+              ...hexdb,
+              airline: adsbdb.airline,
+              source: "hexdb",
+            };
+          }
         }
-        const info = {
-          from: route.origin.icao_code || route.origin.iata_code,
-          to: route.destination.icao_code || route.destination.iata_code,
-          fromCity: route.origin.municipality || route.origin.name,
-          toCity: route.destination.municipality || route.destination.name,
-          airline: route.airline?.name || null,
+      } else if (hexdb?.from && hexdb?.to) {
+        info = {
+          ...hexdb,
+          airline: adsbdb?.airline || null,
+          source: "hexdb",
         };
-        state.routeCache.set(key, info);
-        return info;
-      } catch {
-        state.routeCache.set(key, null);
-        return null;
+      } else if (adsbdb?.from && adsbdb?.to) {
+        info = { ...adsbdb, source: "adsbdb" };
+      } else if (adsbdb?.airline) {
+        info = {
+          from: null,
+          to: null,
+          fromCity: null,
+          toCity: null,
+          airline: adsbdb.airline,
+          source: "adsbdb-airline",
+        };
       }
+
+      state.routeCache.set(key, info);
+      return info;
     }
 
     async function showPlane(index) {
@@ -584,7 +680,7 @@
       el.route.textContent = "Looking up route…";
       el.routeDetail.textContent = "";
 
-      const route = await lookupRoute(p.callsign);
+      const route = await lookupRoute(p.callsign, p);
       if (state.planes[state.index] !== p) return;
 
       if (route?.airline) {
@@ -602,7 +698,7 @@
       } else {
         el.route.textContent = "Route unknown";
         el.routeDetail.textContent = p.callsign
-          ? "No scheduled route found for this callsign"
+          ? "No route found for this callsign"
           : "Needs a callsign to look up route";
       }
     }
