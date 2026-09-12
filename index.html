@@ -166,7 +166,7 @@
 </head>
 <body>
   <main>
-    <div id="status">Locating…</div>
+    <div id="status"></div>
 
     <div id="setup">
       <label for="lat">Latitude</label>
@@ -182,7 +182,7 @@
       <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
       <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
       <div class="row"><span class="label">Speed</span><span class="value" id="speed">—</span></div>
-      <div class="row"><span class="label">Dist</span><span class="value" id="dist">—</span></div>
+      <div class="row"><span class="label">Pos</span><span class="value" id="dist">—</span></div>
       <div class="route">
         <div class="airports" id="route">—</div>
         <div class="cities" id="route-detail"></div>
@@ -191,13 +191,12 @@
   </main>
 
   <footer>
-    <button type="button" class="icon-btn" id="gps" aria-label="GPS" title="GPS">
-      <!-- satellite -->
+    <button type="button" class="icon-btn" id="nearest" aria-label="Nearest" title="Nearest">
+      <!-- crosshair / find nearest -->
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="9" y="9" width="6" height="6" rx="1" transform="rotate(45 12 12)" />
-        <path d="M7 7l2.5 2.5M17 17l2.5 2.5M17 7l-2.5 2.5M7 17l2.5-2.5" />
-        <path d="M12 15.5V19M10.5 19h3" />
-        <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="7" />
+        <circle cx="12" cy="12" r="2.25" fill="currentColor" stroke="none" />
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
       </svg>
     </button>
     <button type="button" class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh">
@@ -241,7 +240,7 @@
       routeDetail: document.getElementById("route-detail"),
       next: document.getElementById("next"),
       refresh: document.getElementById("refresh"),
-      gps: document.getElementById("gps"),
+      nearest: document.getElementById("nearest"),
       lat: document.getElementById("lat"),
       lon: document.getElementById("lon"),
       useLocation: document.getElementById("use-location"),
@@ -285,6 +284,31 @@
       return 2 * R * Math.asin(Math.sqrt(a));
     }
 
+    function bearingDeg(lat1, lon1, lat2, lon2) {
+      const toRad = (d) => (d * Math.PI) / 180;
+      const toDeg = (r) => (r * 180) / Math.PI;
+      const φ1 = toRad(lat1);
+      const φ2 = toRad(lat2);
+      const Δλ = toRad(lon2 - lon1);
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x =
+        Math.cos(φ1) * Math.sin(φ2) -
+        Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
+
+    function compassFromDeg(deg) {
+      if (!Number.isFinite(deg)) return null;
+      const points = [
+        "N", "NNE", "NE", "ENE",
+        "E", "ESE", "SE", "SSE",
+        "S", "SSW", "SW", "WSW",
+        "W", "WNW", "NW", "NNW",
+      ];
+      const idx = Math.round(deg / 22.5) % 16;
+      return points[idx];
+    }
+
     function normalizePlane(raw, originLat, originLon) {
       const lat = raw.lat;
       const lon = raw.lon;
@@ -308,6 +332,11 @@
         dist = haversineNm(originLat, originLon, lat, lon);
       }
 
+      let bearing = raw.dir != null ? Number(raw.dir) : null;
+      if (!Number.isFinite(bearing)) {
+        bearing = bearingDeg(originLat, originLon, lat, lon);
+      }
+
       const typeCode = (raw.t || "").trim() || null;
       const typeDesc = (raw.desc || "").trim() || null;
 
@@ -320,6 +349,7 @@
         alt,
         gs: Number.isFinite(gs) ? gs : null,
         dist,
+        bearing,
         lat,
         lon,
       };
@@ -537,7 +567,11 @@
       el.type.textContent = p.typeDesc || p.typeCode || "—";
       el.alt.textContent = `${fmtNum(p.alt)} ft`;
       el.speed.textContent = p.gs != null ? `${fmtNum(p.gs, 0)} kt` : "—";
-      el.dist.textContent = `${fmtNum(p.dist, 1)} nm`;
+      el.dist.textContent = (() => {
+        const dist = `${fmtNum(p.dist, 1)} nm`;
+        const dir = compassFromDeg(p.bearing);
+        return dir ? `${dist} ${dir}` : dist;
+      })();
 
       el.route.textContent = "Looking up route…";
       el.routeDetail.textContent = "";
@@ -565,19 +599,19 @@
       }
     }
 
-    async function loadPlanes({ keepIndex = false } = {}) {
+    async function loadPlanes({ keepIndex = false, jumpToNearest = false } = {}) {
       if (state.lat == null || state.lon == null) return;
 
       const prevHex = keepIndex && state.planes[state.index]?.hex;
       el.refresh.disabled = true;
-      setStatus(state.planes.length ? "Updating…" : "Fetching nearby aircraft…");
+      el.nearest.disabled = true;
 
       try {
         const data = await fetchAircraftData(state.lat, state.lon);
         state.planes = planesFromResponse(data, state.lat, state.lon);
 
         let nextIndex = 0;
-        if (keepIndex && prevHex) {
+        if (!jumpToNearest && keepIndex && prevHex) {
           const found = state.planes.findIndex((p) => p.hex === prevHex);
           nextIndex = found >= 0 ? found : Math.min(state.index, Math.max(0, state.planes.length - 1));
         }
@@ -590,6 +624,7 @@
         setStatus("Could not load aircraft data. Try Refresh in a moment.", true);
       } finally {
         el.refresh.disabled = false;
+        el.nearest.disabled = false;
       }
     }
 
@@ -648,8 +683,11 @@
       el.lon.value = state.lon ?? DEFAULT_LON;
     }
 
+    /*
+     * Browser geolocation — retained for future use (often blocked in iframes).
+     * To re-enable: wire a button to requestGps() and/or call it on load.
+     */
     function requestGps() {
-      // Geolocation is often blocked in iframes by Permissions-Policy.
       if (!navigator.geolocation) {
         ensureDefaultPosition();
         setStatus("GPS unavailable here — using default location.", true);
@@ -671,7 +709,7 @@
           setStatus(
             blocked
               ? "GPS blocked in this embed — using default location."
-              : `GPS unavailable — using default location.`,
+              : "GPS unavailable — using default location.",
             true
           );
         },
@@ -679,18 +717,25 @@
       );
     }
 
-    el.next.addEventListener("click", () => {
-      showPlane(state.index + 1);
+    // Find nearest: refresh list and jump to closest aircraft
+    el.nearest.addEventListener("click", () => {
+      loadPlanes({ jumpToNearest: true });
+      startTimer();
     });
 
+    // Refresh data for the currently selected aircraft
     el.refresh.addEventListener("click", () => {
       loadPlanes({ keepIndex: true });
       startTimer();
     });
 
-    el.gps.addEventListener("click", () => requestGps());
-    el.useGps.addEventListener("click", () => requestGps());
+    // Next nearest in the sorted list
+    el.next.addEventListener("click", () => {
+      showPlane(state.index + 1);
+    });
 
+    // Manual coordinate UI (hidden unless shown) — kept for future use
+    el.useGps.addEventListener("click", () => requestGps());
     el.useLocation.addEventListener("click", () => {
       const lat = Number(el.lat.value);
       const lon = Number(el.lon.value);
@@ -701,18 +746,8 @@
       setPosition(lat, lon, "manual");
     });
 
-    // Priority: usable ?lat=&lon= → else built-in default.
-    // Never leave the page on 0,0. GPS is only via the satellite button.
-    const params = new URLSearchParams(location.search);
-    const rawLat = params.get("lat");
-    const rawLon = params.get("lon");
-    const qLat = rawLat != null && rawLat !== "" ? Number(rawLat) : NaN;
-    const qLon = rawLon != null && rawLon !== "" ? Number(rawLon) : NaN;
-    if (isUsablePosition(qLat, qLon)) {
-      setPosition(qLat, qLon, "url");
-    } else {
-      setPosition(DEFAULT_LAT, DEFAULT_LON, "default");
-    }
+    // Always use the built-in default location (browser GPS disabled for now).
+    setPosition(DEFAULT_LAT, DEFAULT_LON, "default");
   </script>
 </body>
 </html>
