@@ -75,11 +75,21 @@
       overflow: hidden;
     }
     .route-line {
-      font-size: calc(var(--fs-title) - 2px);
+      font-size: calc(var(--fs-title) - 4px);
       font-weight: 400;
       color: #fff;
       line-height: 1.2;
       margin: 0.15em 0 0;
+      min-height: 1.2em;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .route-cities {
+      font-size: calc(var(--fs-small) - 2px);
+      font-weight: 400;
+      color: var(--muted);
+      line-height: 1.2;
+      margin: 0.1em 0 0;
       min-height: 1.2em;
       white-space: nowrap;
       overflow: hidden;
@@ -184,6 +194,7 @@
       <div class="headline">
         <p class="callsign" id="callsign">—</p>
         <p class="route-line" id="route"></p>
+        <p class="route-cities" id="route-detail"></p>
       </div>
       <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
       <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
@@ -239,6 +250,7 @@
       speed: document.getElementById("speed"),
       dist: document.getElementById("dist"),
       route: document.getElementById("route"),
+      routeDetail: document.getElementById("route-detail"),
       next: document.getElementById("next"),
       refresh: document.getElementById("refresh"),
       nearest: document.getElementById("nearest"),
@@ -718,12 +730,14 @@
       return size;
     }
 
-    function setCallsignAndRoute(callsignText, routeText) {
+    function setCallsignAndRoute(callsignText, routeText, citiesText) {
       el.callsign.textContent = callsignText || "Unknown";
       const csSize = fitTextOneLine(el.callsign);
-      el.route.style.fontSize = `${Math.max(8, (csSize || 16) - 2)}px`;
+      el.route.style.fontSize = `${Math.max(8, (csSize || 16) - 4)}px`;
       el.route.textContent = routeText || "";
       if (routeText) fitTextOneLine(el.route);
+      el.routeDetail.textContent = citiesText || "";
+      if (citiesText) fitTextOneLine(el.routeDetail);
     }
 
     async function showPlane(index) {
@@ -746,6 +760,7 @@
 
       setCallsignAndRoute(
         (await displayNameForCallsign(p.callsign, null)) || p.registration || "Unknown",
+        "",
         ""
       );
 
@@ -768,7 +783,11 @@
         "Unknown";
       const routeText =
         route?.from && route?.to ? `${route.from} → ${route.to}` : "";
-      setCallsignAndRoute(name, routeText);
+      const citiesText =
+        routeText && route?.fromCity && route?.toCity
+          ? `${route.fromCity} to ${route.toCity}`
+          : "";
+      setCallsignAndRoute(name, routeText, citiesText);
     }
 
     async function loadPlanes({ keepIndex = false, jumpToNearest = false } = {}) {
