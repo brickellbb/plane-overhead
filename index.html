@@ -323,6 +323,14 @@
       return points[idx];
     }
 
+    function cleanAircraftType(desc) {
+      if (!desc) return null;
+      return String(desc)
+        .replace(/\s*\((?:long|short)\s*wing\)\s*/gi, " ")
+        .replace(/\s{2,}/g, " ")
+        .trim() || null;
+    }
+
     function normalizePlane(raw, originLat, originLon) {
       const lat = raw.lat;
       const lon = raw.lon;
@@ -352,7 +360,7 @@
       }
 
       const typeCode = (raw.t || "").trim() || null;
-      const typeDesc = (raw.desc || "").trim() || null;
+      const typeDesc = cleanAircraftType((raw.desc || "").trim() || null);
 
       return {
         hex: (raw.hex || "").toLowerCase(),
