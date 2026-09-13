@@ -12,7 +12,8 @@
       --btn: #2a2a2a;
       --btn-hover: #3a3a3a;
       --accent: #7eb8ff;
-      --bg: rgba(17, 17, 17, 0.8); /* ~20% transparent */
+      --bg-top: rgba(17, 17, 17, 0.8);   /* ~20% transparent */
+      --bg-bottom: rgba(17, 17, 17, 0.5); /* ~50% transparent */
       /* Scales down aggressively in small embeds */
       --fs: clamp(8px, 2vh, 11px);
       --fs-title: clamp(16px, 3.4vh, 22px);
@@ -42,7 +43,13 @@
       min-height: 0;
       height: calc(100% - 6px);
       max-height: calc(100% - 6px);
-      background: var(--bg);
+      background: linear-gradient(
+        to bottom,
+        var(--bg-top) 0%,
+        var(--bg-top) 33%,
+        var(--bg-bottom) 33%,
+        var(--bg-bottom) 100%
+      );
       border-radius: 4px;
     }
     main {
