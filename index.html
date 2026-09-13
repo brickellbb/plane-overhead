@@ -231,7 +231,9 @@
   <script>
     const RADIUS_NM = 150; // nautical miles (~173 mi). API max is typically 250.
     const REFRESH_MS = 30000;
+    const LATCH_MS = 5 * 60 * 1000; // keep selected aircraft this long after a button press
     const MIN_ALT_FT = 200;
+    const VERT_RATE_LEVEL_FPM = 150; // treat |vs| below this as level flight
     const DEFAULT_LAT = 43.319;
     const DEFAULT_LON = -79.832;
 
@@ -269,6 +271,7 @@
       rawCount: 0,
       index: 0,
       timer: null,
+      lastInteractionAt: 0,
       routeCache: new Map(),
       callsignCache: new Map(), // ICAO → telephony name from 123atc.com
     };
@@ -362,6 +365,11 @@
       const typeCode = (raw.t || "").trim() || null;
       const typeDesc = cleanAircraftType((raw.desc || "").trim() || null);
 
+      let vs = raw.baro_rate != null ? Number(raw.baro_rate) : NaN;
+      if (!Number.isFinite(vs)) {
+        vs = raw.geom_rate != null ? Number(raw.geom_rate) : NaN;
+      }
+
       return {
         hex: (raw.hex || "").toLowerCase(),
         callsign,
@@ -369,6 +377,7 @@
         typeCode,
         typeDesc,
         alt,
+        vs: Number.isFinite(vs) ? vs : null,
         gs: Number.isFinite(gs) ? gs : null,
         dist,
         bearing,
@@ -774,7 +783,13 @@
       );
 
       el.type.textContent = p.typeDesc || p.typeCode || "—";
-      el.alt.textContent = `${fmtNum(p.alt)} ft`;
+      el.alt.textContent = (() => {
+        const base = `${fmtNum(p.alt)} ft`;
+        if (p.vs == null) return base;
+        if (p.vs > VERT_RATE_LEVEL_FPM) return `${base} ↑`;
+        if (p.vs < -VERT_RATE_LEVEL_FPM) return `${base} ↓`;
+        return base;
+      })();
       el.speed.textContent = p.gs != null ? `${fmtNum(p.gs, 0)} kt` : "—";
       el.dist.textContent = (() => {
         const dist = `${fmtNum(p.dist, 1)} nm`;
@@ -828,9 +843,23 @@
       }
     }
 
+    function noteInteraction() {
+      state.lastInteractionAt = Date.now();
+    }
+
+    function shouldKeepSelection() {
+      return (
+        state.lastInteractionAt > 0 &&
+        Date.now() - state.lastInteractionAt < LATCH_MS
+      );
+    }
+
     function startTimer() {
       clearInterval(state.timer);
-      state.timer = setInterval(() => loadPlanes({ keepIndex: true }), REFRESH_MS);
+      state.timer = setInterval(() => {
+        // No recent button use → always show closest; otherwise latch selection
+        loadPlanes({ keepIndex: shouldKeepSelection() });
+      }, REFRESH_MS);
     }
 
     function isUsablePosition(lat, lon) {
@@ -919,18 +948,21 @@
 
     // Find nearest: refresh list and jump to closest aircraft
     el.nearest.addEventListener("click", () => {
+      noteInteraction();
       loadPlanes({ jumpToNearest: true });
       startTimer();
     });
 
     // Refresh data for the currently selected aircraft
     el.refresh.addEventListener("click", () => {
+      noteInteraction();
       loadPlanes({ keepIndex: true });
       startTimer();
     });
 
     // Next nearest in the sorted list
     el.next.addEventListener("click", () => {
+      noteInteraction();
       showPlane(state.index + 1);
     });
 
