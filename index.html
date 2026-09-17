@@ -114,6 +114,13 @@
       white-space: nowrap;
       overflow: hidden;
     }
+    /* Spacer keeps Type/Alt/etc. in the bottom panel after city names were removed */
+    .route-spacer {
+      margin: 0.1em 0 0;
+      min-height: 1.2em;
+      font-size: var(--fs);
+      line-height: 1.2;
+    }
     .row {
       display: grid;
       grid-template-columns: var(--row-label) 1fr;
@@ -124,7 +131,8 @@
     .row .label { color: var(--fg); }
     .row .value {
       font-variant-numeric: tabular-nums;
-      overflow-wrap: anywhere;
+      white-space: nowrap;
+      overflow: hidden;
     }
     footer {
       display: flex;
@@ -214,6 +222,7 @@
       <div class="headline">
         <p class="callsign" id="callsign">—</p>
         <p class="route-line" id="route"></p>
+        <p class="route-spacer" aria-hidden="true"></p>
       </div>
       <div class="row"><span class="label">Type</span><span class="value" id="type">—</span></div>
       <div class="row"><span class="label">Alt</span><span class="value" id="alt">—</span></div>
@@ -252,6 +261,7 @@
     const REFRESH_MS = 30000;
     const LATCH_MS = 5 * 60 * 1000; // keep selected aircraft this long after a button press
     const MIN_ALT_FT = 200;
+    const MIN_GS_KT = 100;
     const VERT_RATE_LEVEL_FPM = 150; // treat |vs| below this as level flight
     const DEFAULT_LAT = 43.319;
     const DEFAULT_LON = -79.832;
@@ -370,6 +380,7 @@
       if (!callsign && !registration) return null;
 
       const gs = raw.gs != null ? Number(raw.gs) : null;
+      if (!Number.isFinite(gs) || gs < MIN_GS_KT) return null;
       let dist = raw.dst != null ? Number(raw.dst) : null;
       if (!Number.isFinite(dist)) {
         dist = haversineNm(originLat, originLon, lat, lon);
@@ -797,6 +808,7 @@
       );
 
       el.type.textContent = p.typeDesc || p.typeCode || "—";
+      fitTextOneLine(el.type);
       el.alt.textContent = (() => {
         const base = `${fmtNum(p.alt)} ft`;
         if (p.vs == null) return base;
