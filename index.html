@@ -13,7 +13,7 @@
       --btn-hover: #3a3a3a;
       --accent: #7eb8ff;
       --bg-top: rgba(17, 17, 17, 0.85);
-      --bg-bottom: rgba(17, 17, 17, 0.3);
+      --bg-bottom: rgba(17, 17, 17, 0.35);
       --panel-radius: 4px;
       /* Scales down aggressively in small embeds */
       --fs: clamp(10px, 2.4vh, 12px);
@@ -66,7 +66,7 @@
     }
     /* Bottom panel (below 5% clear gap) */
     body::after {
-      top: 38%;
+      top: 36%;
       bottom: 0;
       background: var(--bg-bottom);
     }
@@ -131,7 +131,7 @@
       margin: 1px 0;
       font-size: var(--fs);
     }
-    .row .label { color: var(--muted); }
+    .row .label { color: var(--fg); }
     .row .value {
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
